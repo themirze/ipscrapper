@@ -1,3 +1,0 @@
-google.com : 142.250.203.206
-facebook.com : 57.144.112.1
-youtube.com : 142.250.203.142

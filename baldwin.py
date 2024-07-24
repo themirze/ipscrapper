@@ -2,17 +2,13 @@ import socket as s
 import requests
 import argparse
 from io import open
-import re
 import os
 import time
-import itertools
 from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 
-VERSION = '2.0.0'
+VERSION = '2.2.0'
 BANNER = f"""
-
          
          ██████╗░░█████╗░██╗░░░░░██████╗░░██╗░░░░░░░██╗██╗███╗░░██╗
          ██╔══██╗██╔══██╗██║░░░░░██╔══██╗░██║░░██╗░░██║██║████╗░██║
@@ -21,8 +17,7 @@ BANNER = f"""
          ██████╦╝██║░░██║███████╗██████╔╝░░╚██╔╝░╚██╔╝░██║██║░╚███║
          ╚═════╝░╚═╝░░╚═╝╚══════╝╚═════╝░░░░╚═╝░░░╚═╝░░╚═╝╚═╝░░╚══╝
 
-                                                                      {VERSION}
-"""
+                                                                      {VERSION} """
 
 def verify_internet() -> bool:
     """Check if there is an internet connection"""
@@ -38,13 +33,21 @@ def verify_internet() -> bool:
     finally:
         return connected
 
+def normalize_domain(domain):
+    """Remove http:// or https:// from the domain if present"""
+    if domain.startswith("http://"):
+        domain = domain[len("http://"):]
+    elif domain.startswith("https://"):
+        domain = domain[len("https://"):]
+    return domain
+
 def track_website_ip(domain, save_file=False):
     """Tracks the IP address of the website passed as argument"""
     try:
         if verify_internet():
+            domain = normalize_domain(domain)
             ip = s.gethostbyname(domain)
             print(f"{domain} | {ip}")
-            # If user wants generate a .txt file to save results
             if save_file:
                 save_results(domain, ip)
     except s.gaierror:
@@ -63,70 +66,72 @@ def track_multiple_websites(file_path, save_file=False):
         domain = domain.strip()
         track_website_ip(domain, save_file)
 
-def scrape_urls(query, pages):
-    """Scrape URLs from DuckDuckGo based on the provided query and number of pages"""
-    # Chrome options for background mode
-    chrome_options = Options()
-    chrome_options.add_argument("--disable-gpu")
-    chrome_options.add_argument("--window-size=1920x1080")
-    chrome_options.add_argument("--no-sandbox")
-    chrome_options.add_argument("--disable-dev-shm-usage")
-    chrome_options.add_argument("--disable-blink-features=AutomationControlled")
-
-    driver = webdriver.Chrome(options=chrome_options)
+def get_urls(query, pages):
+    """Retrieve URLs from DuckDuckGo"""
+    driver = webdriver.Chrome()
     driver.get(f"https://duckduckgo.com/?va=j&t=hc&q={query}")
 
-    loading = itertools.cycle(['|', '/', '-', '\\'])
+    loading_symbols = ['|', '/', '-', '\\']
+    filter_domains = [
+        "youtube.com",
+        "facebook.com",
+        "google.com",
+        "google.az",
+        "google.pl",
+        "wikipedia.org"
+    ]
+
+    all_urls = []
 
     try:
         for i in range(pages):
             try:
-                # Wait for the "more-results" button to be clickable
                 time.sleep(2)
                 more_results = driver.find_element(By.ID, "more-results")
                 more_results.click()
-                for _ in range(4):
-                    print(f'\rLoading {next(loading)}', end='')
+                for j in range(4):
+                    print(f'\rLoading {loading_symbols[j % len(loading_symbols)]}', end='')
                     time.sleep(0.5)
             except:
-                break  # No more results button, exit loop
+                break
+
+        elements = driver.find_elements(By.CSS_SELECTOR, '[data-testid="result-extras-url-link"]')
+        for element in elements:
+            first_child = element.find_element(By.CSS_SELECTOR, ':first-child')
+            url = first_child.text
+            if len(url) > 1 and not any(domain in url for domain in filter_domains):
+                all_urls.append(url)
     finally:
         print('\rLoading complete!')
-        pageSource = driver.page_source
         driver.quit()
 
-    if 'Make sure all words are spelled correctly.' in pageSource:
-        exit('No Results Found.')
-
-    urls = list(set(re.findall(r'</a></span><a href="(.*?)"', pageSource)))
-    with open('Results.txt', 'w') as file:
-        for url in urls:
-            print(url)
-            file.write(url + '\n')
-
-    print('Successfully grabbed URLs.')
-    return 'Results.txt'
+    return all_urls
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Find the IP address of any website")
     parser.add_argument('-d', '--domain', metavar='', type=str, required=False, help="Domain to track")
     parser.add_argument('-f', '--file', metavar='', type=str, required=False, help="File containing list of domains to track")
-    parser.add_argument('-q', '--query', metavar='', type=str, required=False, help="Keyword query to scrape URLs from DuckDuckGo")
-    parser.add_argument('-p', '--pages', metavar='', type=int, required=False, help="Number of pages to scrape for URLs")
     parser.add_argument('-s', '--save', action='store_true', help="Save results in a file")
     parser.add_argument('--version', action='store_true', help="Current version")
+    parser.add_argument('-gu', '--get-url', metavar='', type=str, required=False, help="Get URLs based on keyword")
+    parser.add_argument('-p', '--pages', metavar='', type=int, required=False, help="Number of pages to search")
+    parser.add_argument('-gi', '--get-ip', action='store_true', help="Get IP addresses of the found URLs")
     args = parser.parse_args()
 
     if not any(vars(args).values()):
         print(BANNER)
         parser.print_help()
     else:
-        if args.query and args.pages:
-            file_path = scrape_urls(args.query, args.pages)
-            if args.save:
-                track_multiple_websites(file_path, save_file=True)
-            else:
-                track_multiple_websites(file_path)
+        if args.get_url and args.pages:
+            urls = get_urls(args.get_url, args.pages)
+            filename = f"{args.get_url.replace(' ', '_')}.txt"
+            with open(filename, 'w') as file:
+                for url in urls:
+                    file.write(f'{url}\n')
+                    print(url)
+            if args.get_ip:
+                for url in urls:
+                    track_website_ip(url, save_file=args.save)
         elif args.domain and args.save:
             track_website_ip(args.domain, save_file=True)
         elif args.domain:
@@ -136,6 +141,6 @@ if __name__ == "__main__":
         elif args.file:
             track_multiple_websites(args.file)
         elif args.version:
-            print(f"Website IP Tracker {VERSION}")
+            print(f"BALDWIN {VERSION}")
         else:
             parser.print_help()
