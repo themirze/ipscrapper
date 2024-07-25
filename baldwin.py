@@ -49,14 +49,14 @@ def track_website_ip(domain, save_file=False):
             ip = s.gethostbyname(domain)
             print(f"{domain} | {ip}")
             if save_file:
-                save_results(domain, ip)
+                save_results(ip)
     except s.gaierror:
         print(f"Domain {domain} failed, try again please")
 
-def save_results(domain, ip):
+def save_results(ip):
     """Save results in a .txt file"""
     with open('results.txt', 'a+') as f:
-        f.write(f"{domain} : {ip}" + '\n')
+        f.write(f"{ip}" + '\n')
 
 def track_multiple_websites(file_path, save_file=False):
     """Tracks the IP addresses of websites listed in a file"""
@@ -128,7 +128,6 @@ if __name__ == "__main__":
             with open(filename, 'w') as file:
                 for url in urls:
                     file.write(f'{url}\n')
-                    print(url)
             if args.get_ip:
                 for url in urls:
                     track_website_ip(url, save_file=args.save)
